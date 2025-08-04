@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Card,
   CardContent,
@@ -27,10 +27,20 @@ import {
   RotateCw,
   Plus,
   Trash2,
+  FileText,
+  HelpCircle,
+  Upload,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast, Toaster } from "sonner";
 import { v4 as uuidv4 } from "uuid";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 
 // Helper function to convert a string to an ArrayBuffer
 const strToArrayBuffer = (str) => {
@@ -112,6 +122,7 @@ export default function App() {
   const [secretKey, setSecretKey] = useState("");
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [showKey, setShowKey] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
 
   useEffect(() => {
     const storedTheme = localStorage.getItem("theme");
@@ -317,6 +328,69 @@ export default function App() {
     document.getElementById(tabId)?.scrollIntoView({ behavior: "smooth" });
   };
 
+  const handleFileUpload = async (file: File) => {
+    try {
+      const text = await file.text();
+      const lines = text.split(/\r?\n/).filter((line) => line.trim());
+
+      if (activeTab === "encrypt") {
+        const newFields = lines.map((line) => ({
+          id: uuidv4(),
+          plaintext: line,
+          ciphertext: "",
+        }));
+        setEncryptionFields(newFields);
+      } else {
+        const newFields = lines.map((line) => ({
+          id: uuidv4(),
+          inputToken: line,
+          decryptedText: "",
+        }));
+        setDecryptionFields(newFields);
+      }
+      toast.success(`Imported ${lines.length} items`);
+    } catch (error) {
+      toast.error("Failed to process file");
+    }
+  };
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setDragActive(false);
+
+      if (e.dataTransfer.files?.[0]) {
+        handleFileUpload(e.dataTransfer.files[0]);
+      }
+    },
+    [activeTab]
+  );
+
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent) => {
+      const text = e.clipboardData.getData("text");
+      const lines = text.split(/\r?\n/).filter((line) => line.trim());
+
+      if (activeTab === "encrypt") {
+        const newFields = lines.map((line) => ({
+          id: uuidv4(),
+          plaintext: line,
+          ciphertext: "",
+        }));
+        setEncryptionFields((prev) => [...prev, ...newFields]);
+      } else {
+        const newFields = lines.map((line) => ({
+          id: uuidv4(),
+          inputToken: line,
+          decryptedText: "",
+        }));
+        setDecryptionFields((prev) => [...prev, ...newFields]);
+      }
+      toast.success(`Added ${lines.length} items from clipboard`);
+    },
+    [activeTab]
+  );
+
   const variants: any = {
     hidden: { opacity: 0, scale: 0.95 },
     visible: {
@@ -367,11 +441,11 @@ export default function App() {
       />
 
       {/* Navbar */}
-      <nav className="border-b border-gray-200 dark:border-gray-800 p-4 sticky top-0 z-50 backdrop-blur-sm bg-white/50 dark:bg-black/50">
+      <nav className="border-b border-gray-200 dark:border-gray-800 p-2 sm:p-4 sticky top-0 z-50 backdrop-blur-sm bg-white/50 dark:bg-black/50">
         <div className="container mx-auto flex justify-between items-center">
           <div className="flex items-center space-x-8">
             <div className="flex items-center space-x-2">
-              <Key className="h-6 w-6 text-black dark:text-white" />
+              <Key className="h-5 w-5 sm:h-6 sm:w-6 text-black dark:text-white" />
               <h1 className="text-2xl font-bold text-black dark:text-white">
                 Aegis
               </h1>
@@ -401,9 +475,9 @@ export default function App() {
               className="hover:bg-gray-200 dark:hover:bg-gray-800"
             >
               {isDarkMode ? (
-                <Sun className="h-5 w-5 text-gray-400 hover:text-white" />
+                <Sun className="h-4 w-4 sm:h-5 sm:w-5 text-gray-400 hover:text-white" />
               ) : (
-                <Moon className="h-5 w-5 text-gray-700 hover:text-black" />
+                <Moon className="h-4 w-4 sm:h-5 sm:w-5 text-gray-700 hover:text-black" />
               )}
             </Button>
           </div>
@@ -666,10 +740,13 @@ export default function App() {
                               <Button
                                 onClick={addEncryptionField}
                                 variant="outline"
-                                className="text-black dark:text-white border-black dark:border-white hover:bg-gray-200 dark:hover:bg-gray-800"
+                                className="text-black dark:text-white border-black dark:border-white hover:bg-gray-200 dark:hover:bg-gray-800 text-xs sm:text-sm p-2 sm:p-4"
                               >
-                                <Plus className="mr-2 h-4 w-4" />
-                                Add Another
+                                <Plus className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                                <span className="hidden sm:inline">
+                                  Add Another
+                                </span>
+                                <span className="sm:hidden">Add</span>
                               </Button>
                               <Button
                                 onClick={downloadEncrypted}
@@ -824,10 +901,13 @@ export default function App() {
                               <Button
                                 onClick={addDecryptionField}
                                 variant="outline"
-                                className="text-black dark:text-white border-black dark:border-white hover:bg-gray-200 dark:hover:bg-gray-800"
+                                className="text-black dark:text-white border-black dark:border-white hover:bg-gray-200 dark:hover:bg-gray-800 text-xs sm:text-sm p-2 sm:p-4"
                               >
-                                <Plus className="mr-2 h-4 w-4" />
-                                Add Another
+                                <Plus className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                                <span className="hidden sm:inline">
+                                  Add Another
+                                </span>
+                                <span className="sm:hidden">Add</span>
                               </Button>
                               <Button
                                 onClick={downloadDecrypted}
@@ -874,6 +954,87 @@ export default function App() {
                   </AnimatePresence>
                 </div>
               </Tabs>
+
+              {/* File Upload and Sample Format Section */}
+              <div className="mb-4">
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mb-4 mt-4 p-4 w-full sm:w-auto"
+                    >
+                      <HelpCircle className="h-4 w-4 mr-2 flex-shrink-0" />
+                      <span className="hidden sm:inline">
+                        View Sample Format
+                      </span>
+                      <span className="sm:hidden">Sample</span>
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>
+                        {activeTab === "encrypt" ? "Encryption" : "Decryption"}{" "}
+                        File Format
+                      </DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        Each line will be treated as a separate item to{" "}
+                        {activeTab}:
+                      </p>
+                      <pre className="bg-gray-100 dark:bg-gray-800 p-4 rounded-md text-sm">
+                        {activeTab === "encrypt"
+                          ? "Sensitive data 1\nSensitive data 2\nSensitive data 3"
+                          : "encrypted-token-1\nencrypted-token-2\nencrypted-token-3"}
+                      </pre>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+
+                <div
+                  className={`mt-4 border-2 border-dashed rounded-lg p-4 sm:p-8 text-center ${
+                    dragActive
+                      ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
+                      : "border-gray-300 dark:border-gray-700"
+                  } transition-colors`}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setDragActive(true);
+                  }}
+                  onDragLeave={() => setDragActive(false)}
+                  onDrop={handleDrop}
+                  onPaste={handlePaste}
+                >
+                  <input
+                    type="file"
+                    accept=".txt,.csv"
+                    className="hidden"
+                    id="file-upload"
+                    onChange={(e) =>
+                      e.target.files?.[0] && handleFileUpload(e.target.files[0])
+                    }
+                  />
+                  <label
+                    htmlFor="file-upload"
+                    className="flex flex-col items-center cursor-pointer"
+                  >
+                    <Upload className="h-6 w-6 sm:h-8 sm:w-8 mb-2 text-gray-400" />
+                    <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
+                      <span className="hidden sm:inline">
+                        Drag & drop a file here,{" "}
+                      </span>
+                      <span className="text-blue-500">browse</span>
+                      <span className="hidden sm:inline">
+                        , or paste content
+                      </span>
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1 hidden sm:block">
+                      Supports TXT and CSV files
+                    </p>
+                  </label>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </motion.div>
