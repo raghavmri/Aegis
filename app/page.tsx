@@ -317,21 +317,22 @@ export default function App() {
     document.getElementById(tabId)?.scrollIntoView({ behavior: "smooth" });
   };
 
-  const variants = {
+  const variants: any = {
     hidden: { opacity: 0, scale: 0.95 },
     visible: {
       opacity: 1,
       scale: 1,
-      transition: { duration: 0.3, ease: "easeInOut" },
+      transition: { duration: 0.3, ease: [0.4, 0, 0.2, 1] },
     },
     exit: { opacity: 0, scale: 0.95, transition: { duration: 0.3 } },
   };
 
-  const cardVariants = {
+  const cardVariants: any = {
     initial: {
       opacity: 0,
       scale: 0.95,
       y: 20,
+      transition: { duration: 0.5 },
     },
     animate: {
       opacity: 1,
@@ -339,7 +340,7 @@ export default function App() {
       y: 0,
       transition: {
         duration: 0.5,
-        ease: "easeOut",
+        ease: [0.4, 0, 0.2, 1],
       },
     },
     exit: {
@@ -348,7 +349,7 @@ export default function App() {
       y: 20,
       transition: {
         duration: 0.3,
-        ease: "easeIn",
+        ease: [0.4, 0, 0.2, 1],
       },
     },
   };
