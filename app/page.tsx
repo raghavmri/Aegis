@@ -25,9 +25,12 @@ import {
   Moon,
   Key,
   RotateCw,
+  Plus,
+  Trash2,
 } from "lucide-react";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { toast, Toaster } from "sonner";
+import { v4 as uuidv4 } from "uuid";
 
 // Helper function to convert a string to an ArrayBuffer
 const strToArrayBuffer = (str) => {
@@ -99,15 +102,15 @@ const downloadFile = (content, fileName, fileType) => {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("encrypt");
-  const [plaintext, setPlaintext] = useState("");
-  const [ciphertext, setCiphertext] = useState("");
-  const [inputToken, setInputToken] = useState("");
-  const [decryptedText, setDecryptedText] = useState("");
+  const [encryptionFields, setEncryptionFields] = useState([
+    { id: uuidv4(), plaintext: "", ciphertext: "" },
+  ]);
+  const [decryptionFields, setDecryptionFields] = useState([
+    { id: uuidv4(), inputToken: "", decryptedText: "" },
+  ]);
   const [isLoading, setIsLoading] = useState(false);
   const [secretKey, setSecretKey] = useState("");
   const [isDarkMode, setIsDarkMode] = useState(true);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [generatedKey, setGeneratedKey] = useState("");
   const [showKey, setShowKey] = useState(false);
 
   useEffect(() => {
@@ -122,9 +125,51 @@ export default function App() {
     localStorage.setItem("theme", isDarkMode ? "dark" : "light");
   }, [isDarkMode]);
 
-  const handleEncrypt = async () => {
-    if (!plaintext) {
-      toast.error("Please enter data to encrypt");
+  const updateEncryptionField = (id, key, value) => {
+    setEncryptionFields((prevFields) =>
+      prevFields.map((field) =>
+        field.id === id ? { ...field, [key]: value } : field
+      )
+    );
+  };
+
+  const addEncryptionField = () => {
+    setEncryptionFields((prevFields) => [
+      ...prevFields,
+      { id: uuidv4(), plaintext: "", ciphertext: "" },
+    ]);
+  };
+
+  const removeEncryptionField = (id) => {
+    setEncryptionFields((prevFields) =>
+      prevFields.filter((field) => field.id !== id)
+    );
+  };
+
+  const updateDecryptionField = (id, key, value) => {
+    setDecryptionFields((prevFields) =>
+      prevFields.map((field) =>
+        field.id === id ? { ...field, [key]: value } : field
+      )
+    );
+  };
+
+  const addDecryptionField = () => {
+    setDecryptionFields((prevFields) => [
+      ...prevFields,
+      { id: uuidv4(), inputToken: "", decryptedText: "" },
+    ]);
+  };
+
+  const removeDecryptionField = (id) => {
+    setDecryptionFields((prevFields) =>
+      prevFields.filter((field) => field.id !== id)
+    );
+  };
+
+  const handleEncryptAll = async () => {
+    if (encryptionFields.some((field) => !field.plaintext)) {
+      toast.error("Please enter data in all fields to encrypt");
       return;
     }
     if (!secretKey) {
@@ -133,29 +178,32 @@ export default function App() {
     }
 
     setIsLoading(true);
-    setCiphertext("");
 
     try {
-      const salt = window.crypto.getRandomValues(new Uint8Array(16));
-      const iv = window.crypto.getRandomValues(new Uint8Array(16));
+      const results = await Promise.all(
+        encryptionFields.map(async (field) => {
+          const salt = window.crypto.getRandomValues(new Uint8Array(16));
+          const iv = window.crypto.getRandomValues(new Uint8Array(16));
 
-      const aesKey = await deriveKey(secretKey, salt);
+          const aesKey = await deriveKey(secretKey, salt);
 
-      const encrypted = await window.crypto.subtle.encrypt(
-        { name: "AES-CBC", iv: iv },
-        aesKey,
-        strToArrayBuffer(plaintext)
+          const encrypted = await window.crypto.subtle.encrypt(
+            { name: "AES-CBC", iv: iv },
+            aesKey,
+            strToArrayBuffer(field.plaintext)
+          );
+
+          const combined = new Uint8Array(
+            salt.length + iv.length + encrypted.byteLength
+          );
+          combined.set(salt);
+          combined.set(iv, salt.length);
+          combined.set(new Uint8Array(encrypted), salt.length + iv.length);
+
+          return { ...field, ciphertext: base64UrlEncode(combined.buffer) };
+        })
       );
-
-      const combined = new Uint8Array(
-        salt.length + iv.length + encrypted.byteLength
-      );
-      combined.set(salt);
-      combined.set(iv, salt.length);
-      combined.set(new Uint8Array(encrypted), salt.length + iv.length);
-
-      const encryptedResult = base64UrlEncode(combined.buffer);
-      setCiphertext(encryptedResult);
+      setEncryptionFields(results);
       toast.success("Encryption successful!");
     } catch (error) {
       console.error("Encryption error:", error);
@@ -165,9 +213,9 @@ export default function App() {
     }
   };
 
-  const handleDecrypt = async () => {
-    if (!inputToken) {
-      toast.error("Please enter an encrypted token");
+  const handleDecryptAll = async () => {
+    if (decryptionFields.some((field) => !field.inputToken)) {
+      toast.error("Please enter encrypted tokens in all fields");
       return;
     }
     if (!secretKey) {
@@ -176,24 +224,35 @@ export default function App() {
     }
 
     setIsLoading(true);
-    setDecryptedText("");
 
     try {
-      const decoded = base64UrlDecode(inputToken);
-      const salt = decoded.slice(0, 16);
-      const iv = decoded.slice(16, 32);
-      const encryptedData = decoded.slice(32);
+      const results = await Promise.all(
+        decryptionFields.map(async (field) => {
+          try {
+            const decoded = base64UrlDecode(field.inputToken);
+            const salt = decoded.slice(0, 16);
+            const iv = decoded.slice(16, 32);
+            const encryptedData = decoded.slice(32);
 
-      const aesKey = await deriveKey(secretKey, salt);
+            const aesKey = await deriveKey(secretKey, salt);
 
-      const decrypted = await window.crypto.subtle.decrypt(
-        { name: "AES-CBC", iv: new Uint8Array(iv) },
-        aesKey,
-        encryptedData
+            const decrypted = await window.crypto.subtle.decrypt(
+              { name: "AES-CBC", iv: new Uint8Array(iv) },
+              aesKey,
+              encryptedData
+            );
+
+            return { ...field, decryptedText: arrayBufferToStr(decrypted) };
+          } catch (error) {
+            console.error("Decryption error for a field:", error);
+            return {
+              ...field,
+              decryptedText: "Decryption failed. Invalid token or key.",
+            };
+          }
+        })
       );
-
-      const decryptedResult = arrayBufferToStr(decrypted);
-      setDecryptedText(decryptedResult);
+      setDecryptionFields(results);
       toast.success("Decryption successful!");
     } catch (error) {
       console.error("Decryption error:", error);
@@ -216,7 +275,6 @@ export default function App() {
   const generateRandomKey = () => {
     const randomBytes = window.crypto.getRandomValues(new Uint8Array(32));
     const newKey = base64UrlEncode(randomBytes.buffer);
-    setGeneratedKey(newKey);
     setSecretKey(newKey);
     toast.success("New secure key generated");
   };
@@ -231,26 +289,68 @@ export default function App() {
   };
 
   const downloadEncrypted = () => {
-    if (!ciphertext) {
+    const allCiphertexts = encryptionFields
+      .map((f) => f.ciphertext)
+      .join("\n\n---\n\n");
+    if (!allCiphertexts) {
       toast.error("No encrypted data to download");
       return;
     }
-    downloadFile(ciphertext, "aegis-encrypted-token.txt", "text/plain");
-    toast.success("Encrypted token downloaded");
+    downloadFile(allCiphertexts, "aegis-encrypted-tokens.txt", "text/plain");
+    toast.success("Encrypted tokens downloaded");
   };
 
   const downloadDecrypted = () => {
-    if (!decryptedText) {
+    const allDecryptedTexts = decryptionFields
+      .map((f) => f.decryptedText)
+      .join("\n\n---\n\n");
+    if (!allDecryptedTexts) {
       toast.error("No decrypted data to download");
       return;
     }
-    downloadFile(decryptedText, "aegis-decrypted-data.txt", "text/plain");
+    downloadFile(allDecryptedTexts, "aegis-decrypted-data.txt", "text/plain");
     toast.success("Decrypted data downloaded");
   };
 
   const scrollToTab = (tabId) => {
     setActiveTab(tabId);
     document.getElementById(tabId)?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const variants = {
+    hidden: { opacity: 0, scale: 0.95 },
+    visible: {
+      opacity: 1,
+      scale: 1,
+      transition: { duration: 0.3, ease: "easeInOut" },
+    },
+    exit: { opacity: 0, scale: 0.95, transition: { duration: 0.3 } },
+  };
+
+  const cardVariants = {
+    initial: {
+      opacity: 0,
+      scale: 0.95,
+      y: 20,
+    },
+    animate: {
+      opacity: 1,
+      scale: 1,
+      y: 0,
+      transition: {
+        duration: 0.5,
+        ease: "easeOut",
+      },
+    },
+    exit: {
+      opacity: 0,
+      scale: 0.95,
+      y: 20,
+      transition: {
+        duration: 0.3,
+        ease: "easeIn",
+      },
+    },
   };
 
   return (
@@ -266,28 +366,27 @@ export default function App() {
       />
 
       {/* Navbar */}
-      <nav className="border-b border-gray-800 p-4 sticky top-0 z-50 backdrop-blur-sm bg-white/5 dark:bg-black/5">
+      <nav className="border-b border-gray-200 dark:border-gray-800 p-4 sticky top-0 z-50 backdrop-blur-sm bg-white/50 dark:bg-black/50">
         <div className="container mx-auto flex justify-between items-center">
           <div className="flex items-center space-x-8">
             <div className="flex items-center space-x-2">
-              <Key className="h-6 w-6 text-indigo-500" />
-              <h1 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500">
+              <Key className="h-6 w-6 text-black dark:text-white" />
+              <h1 className="text-2xl font-bold text-black dark:text-white">
                 Aegis
               </h1>
-              {/* <span className="text-sm opacity-80">by GamicGo</span> */}
             </div>
             <div className="hidden md:flex space-x-4">
               <Button
                 variant="ghost"
                 onClick={() => scrollToTab("encrypt")}
-                className="text-gray-700 dark:text-gray-300 hover:text-indigo-500 dark:hover:text-indigo-400"
+                className="text-gray-700 dark:text-gray-300 hover:text-black dark:hover:text-white"
               >
                 Encrypt
               </Button>
               <Button
                 variant="ghost"
                 onClick={() => scrollToTab("decrypt")}
-                className="text-gray-700 dark:text-gray-300 hover:text-purple-500 dark:hover:text-purple-400"
+                className="text-gray-700 dark:text-gray-300 hover:text-black dark:hover:text-white"
               >
                 Decrypt
               </Button>
@@ -301,18 +400,10 @@ export default function App() {
               className="hover:bg-gray-200 dark:hover:bg-gray-800"
             >
               {isDarkMode ? (
-                <Sun className="h-5 w-5 text-yellow-300" />
+                <Sun className="h-5 w-5 text-gray-400 hover:text-white" />
               ) : (
-                <Moon className="h-5 w-5 text-gray-800" />
+                <Moon className="h-5 w-5 text-gray-700 hover:text-black" />
               )}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => window.open("https://www.gamicgo.xyz", "_blank")}
-              className="border-indigo-500 text-indigo-500 hover:bg-indigo-500/10"
-            >
-              Visit GamicGo
             </Button>
           </div>
         </div>
@@ -328,8 +419,8 @@ export default function App() {
           <Card
             className={`${
               isDarkMode
-                ? "bg-gray-900 border-gray-800"
-                : "bg-white border-gray-200"
+                ? "bg-gray-900 border-gray-800 text-white"
+                : "bg-white border-gray-200 text-black"
             } shadow-xl rounded-xl overflow-hidden`}
           >
             <CardHeader className="text-center">
@@ -342,7 +433,7 @@ export default function App() {
                   transition={{ type: "spring", stiffness: 400, damping: 10 }}
                 />
               </div>
-              <CardTitle className="text-3xl font-bold bg-gradient-to-r from-indigo-400 to-purple-500 bg-clip-text text-transparent">
+              <CardTitle className="text-3xl font-bold text-black dark:text-white">
                 Aegis Encryption
               </CardTitle>
               <CardDescription
@@ -383,7 +474,7 @@ export default function App() {
                         variant="ghost"
                         size="icon"
                         onClick={() => setShowKey(!showKey)}
-                        className="h-8 w-8"
+                        className="h-8 w-8 text-gray-500 hover:text-black dark:hover:text-white"
                       >
                         {showKey ? (
                           <EyeOff className="h-4 w-4" />
@@ -398,7 +489,7 @@ export default function App() {
                           copyToClipboard(secretKey, "Key copied to clipboard")
                         }
                         disabled={!secretKey}
-                        className="h-8 w-8"
+                        className="h-8 w-8 text-gray-500 hover:text-black dark:hover:text-white"
                       >
                         <Copy className="h-4 w-4" />
                       </Button>
@@ -410,8 +501,8 @@ export default function App() {
                   >
                     <Button
                       onClick={generateRandomKey}
-                      variant="secondary"
-                      className="bg-gradient-to-r from-indigo-500 to-purple-500 text-white hover:from-indigo-600 hover:to-purple-600"
+                      variant="outline"
+                      className="text-black dark:text-white border-black dark:border-white hover:bg-gray-200 dark:hover:bg-gray-800"
                     >
                       <RotateCw className="mr-2 h-4 w-4" />
                       Generate
@@ -428,7 +519,7 @@ export default function App() {
                       variant="ghost"
                       size="sm"
                       onClick={downloadKey}
-                      className="text-indigo-500 hover:text-indigo-600 dark:text-indigo-400 dark:hover:text-indigo-300"
+                      className="text-black dark:text-white hover:underline"
                     >
                       <Download className="mr-2 h-4 w-4" />
                       Download Key
@@ -436,239 +527,358 @@ export default function App() {
                   </motion.div>
                 )}
               </div>
-
               <Tabs
                 value={activeTab}
                 onValueChange={setActiveTab}
                 className="mt-6"
               >
                 <TabsList
-                  className={`grid w-full grid-cols-2 ${
-                    isDarkMode
-                      ? "bg-gray-800 border-gray-700"
-                      : "bg-gray-100 border-gray-300"
-                  }`}
+                  className={`grid w-full grid-cols-2 bg-gray-100 dark:bg-gray-800`}
                 >
                   <TabsTrigger
                     value="encrypt"
                     id="encrypt"
-                    className={`data-[state=active]:bg-gradient-to-r data-[state=active]:from-indigo-500 data-[state=active]:to-purple-500 data-[state=active]:text-white transition-all duration-200`}
+                    className={`data-[state=active]:bg-white data-[state=active]:text-black data-[state=active]:shadow-sm
+                                 dark:data-[state=active]:bg-gray-700 dark:data-[state=active]:text-white transition-all duration-200`}
                   >
                     <Lock className="mr-2 h-4 w-4" /> Encrypt
                   </TabsTrigger>
                   <TabsTrigger
                     value="decrypt"
                     id="decrypt"
-                    className={`data-[state=active]:bg-gradient-to-r data-[state=active]:from-indigo-500 data-[state=active]:to-purple-500 data-[state=active]:text-white transition-all duration-200`}
+                    className={`data-[state=active]:bg-white data-[state=active]:text-black data-[state=active]:shadow-sm
+                                 dark:data-[state=active]:bg-gray-700 dark:data-[state=active]:text-white transition-all duration-200`}
                   >
                     <Unlock className="mr-2 h-4 w-4" /> Decrypt
                   </TabsTrigger>
                 </TabsList>
-
-                <TabsContent value="encrypt" className="mt-6">
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label
-                        htmlFor="plaintext"
-                        className={`${
-                          isDarkMode ? "text-gray-300" : "text-gray-700"
-                        }`}
-                      >
-                        Data to Encrypt
-                      </Label>
-                      <Textarea
-                        id="plaintext"
-                        placeholder="Enter sensitive data here..."
-                        value={plaintext}
-                        onChange={(e) => setPlaintext(e.target.value)}
-                        className={`${
-                          isDarkMode
-                            ? "bg-gray-800 border-gray-700 text-white"
-                            : "bg-gray-100 border-gray-300 text-gray-800"
-                        } min-h-[120px]`}
-                      />
-                    </div>
-                    <motion.div
-                      whileHover={{ scale: 1.01 }}
-                      whileTap={{ scale: 0.99 }}
-                    >
-                      <Button
-                        onClick={handleEncrypt}
-                        disabled={isLoading || !secretKey}
-                        className="w-full bg-gradient-to-r from-indigo-500 to-purple-500 text-white hover:from-indigo-600 hover:to-purple-600 shadow-md"
-                      >
-                        {isLoading ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Encrypting...
-                          </>
-                        ) : (
-                          <>
-                            <Lock className="mr-2 h-4 w-4" />
-                            Encrypt Data
-                          </>
-                        )}
-                      </Button>
-                    </motion.div>
-                    {ciphertext && (
+                <div className="overflow-hidden">
+                  <AnimatePresence mode="wait">
+                    {activeTab === "encrypt" && (
                       <motion.div
-                        className="space-y-2"
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
+                        key="encrypt"
+                        variants={cardVariants}
+                        initial="initial"
+                        animate="animate"
+                        exit="exit"
                       >
-                        <Label
-                          htmlFor="ciphertext"
-                          className={`${
-                            isDarkMode ? "text-gray-300" : "text-gray-700"
-                          }`}
-                        >
-                          Encrypted Token
-                        </Label>
-                        <div className="relative">
-                          <Textarea
-                            id="ciphertext"
-                            readOnly
-                            value={ciphertext}
-                            className={`${
-                              isDarkMode
-                                ? "bg-gray-800 border-gray-700 text-purple-300"
-                                : "bg-gray-100 border-gray-300 text-purple-700"
-                            } font-mono text-sm min-h-[100px]`}
-                          />
-                          <div className="absolute top-2 right-2 flex space-x-1">
-                            <Button
-                              onClick={() =>
-                                copyToClipboard(
-                                  ciphertext,
-                                  "Encrypted token copied"
-                                )
-                              }
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
+                        <TabsContent value="encrypt" className="mt-6">
+                          <div className="space-y-4">
+                            <AnimatePresence>
+                              {encryptionFields.map((field, index) => (
+                                <motion.div
+                                  key={field.id}
+                                  initial="hidden"
+                                  animate="visible"
+                                  exit="exit"
+                                  variants={variants}
+                                  className="space-y-2 border p-4 rounded-md dark:border-gray-700"
+                                >
+                                  <div className="flex justify-between items-center">
+                                    <Label
+                                      htmlFor={`plaintext-${field.id}`}
+                                      className={`${
+                                        isDarkMode
+                                          ? "text-gray-300"
+                                          : "text-gray-700"
+                                      }`}
+                                    >
+                                      Data to Encrypt {index + 1}
+                                    </Label>
+                                    {encryptionFields.length > 1 && (
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={() =>
+                                          removeEncryptionField(field.id)
+                                        }
+                                        className="h-8 w-8 text-gray-500 hover:text-red-500"
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </Button>
+                                    )}
+                                  </div>
+                                  <Textarea
+                                    id={`plaintext-${field.id}`}
+                                    placeholder="Enter sensitive data here..."
+                                    value={field.plaintext}
+                                    onChange={(e) =>
+                                      updateEncryptionField(
+                                        field.id,
+                                        "plaintext",
+                                        e.target.value
+                                      )
+                                    }
+                                    className={`${
+                                      isDarkMode
+                                        ? "bg-gray-800 border-gray-700 text-white"
+                                        : "bg-gray-100 border-gray-300 text-gray-800"
+                                    } min-h-[120px]`}
+                                  />
+                                  {field.ciphertext && (
+                                    <div className="space-y-2 mt-4">
+                                      <Label
+                                        htmlFor={`ciphertext-${field.id}`}
+                                        className={`${
+                                          isDarkMode
+                                            ? "text-gray-300"
+                                            : "text-gray-700"
+                                        }`}
+                                      >
+                                        Encrypted Token {index + 1}
+                                      </Label>
+                                      <div className="relative">
+                                        <Textarea
+                                          id={`ciphertext-${field.id}`}
+                                          readOnly
+                                          value={field.ciphertext}
+                                          className={`${
+                                            isDarkMode
+                                              ? "bg-gray-800 border-gray-700 text-gray-300"
+                                              : "bg-gray-100 border-gray-300 text-gray-700"
+                                          } font-mono text-sm min-h-[100px]`}
+                                        />
+                                        <div className="absolute top-2 right-2 flex space-x-1">
+                                          <Button
+                                            onClick={() =>
+                                              copyToClipboard(
+                                                field.ciphertext,
+                                                `Encrypted token ${
+                                                  index + 1
+                                                } copied`
+                                              )
+                                            }
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-8 w-8 text-gray-500 hover:text-black dark:hover:text-white"
+                                          >
+                                            <Copy className="h-4 w-4" />
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+                                </motion.div>
+                              ))}
+                            </AnimatePresence>
+                            <div className="flex justify-end space-x-2">
+                              <Button
+                                onClick={addEncryptionField}
+                                variant="outline"
+                                className="text-black dark:text-white border-black dark:border-white hover:bg-gray-200 dark:hover:bg-gray-800"
+                              >
+                                <Plus className="mr-2 h-4 w-4" />
+                                Add Another
+                              </Button>
+                              <Button
+                                onClick={downloadEncrypted}
+                                disabled={encryptionFields.every(
+                                  (f) => !f.ciphertext
+                                )}
+                                variant="outline"
+                                className="text-black dark:text-white border-black dark:border-white hover:bg-gray-200 dark:hover:bg-gray-800"
+                              >
+                                <Download className="mr-2 h-4 w-4" />
+                                Download All
+                              </Button>
+                            </div>
+                            <motion.div
+                              whileHover={{ scale: 1.01 }}
+                              whileTap={{ scale: 0.99 }}
                             >
-                              <Copy className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              onClick={downloadEncrypted}
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                            >
-                              <Download className="h-4 w-4" />
-                            </Button>
+                              <Button
+                                onClick={handleEncryptAll}
+                                disabled={
+                                  isLoading ||
+                                  !secretKey ||
+                                  encryptionFields.every((f) => !f.plaintext)
+                                }
+                                className="w-full bg-black text-white dark:bg-white dark:text-black shadow-md"
+                              >
+                                {isLoading ? (
+                                  <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    Encrypting...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Lock className="mr-2 h-4 w-4" />
+                                    Encrypt All
+                                  </>
+                                )}
+                              </Button>
+                            </motion.div>
                           </div>
-                        </div>
+                        </TabsContent>
                       </motion.div>
                     )}
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="decrypt" className="mt-6">
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label
-                        htmlFor="inputToken"
-                        className={`${
-                          isDarkMode ? "text-gray-300" : "text-gray-700"
-                        }`}
-                      >
-                        Encrypted Token
-                      </Label>
-                      <Textarea
-                        id="inputToken"
-                        placeholder="Paste encrypted token here..."
-                        value={inputToken}
-                        onChange={(e) => setInputToken(e.target.value)}
-                        className={`${
-                          isDarkMode
-                            ? "bg-gray-800 border-gray-700 text-white"
-                            : "bg-gray-100 border-gray-300 text-gray-800"
-                        } min-h-[120px]`}
-                      />
-                    </div>
-                    <motion.div
-                      whileHover={{ scale: 1.01 }}
-                      whileTap={{ scale: 0.99 }}
-                    >
-                      <Button
-                        onClick={handleDecrypt}
-                        disabled={isLoading || !secretKey}
-                        className="w-full bg-gradient-to-r from-indigo-500 to-purple-500 text-white hover:from-indigo-600 hover:to-purple-600 shadow-md"
-                      >
-                        {isLoading ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Decrypting...
-                          </>
-                        ) : (
-                          <>
-                            <Unlock className="mr-2 h-4 w-4" />
-                            Decrypt Token
-                          </>
-                        )}
-                      </Button>
-                    </motion.div>
-                    {decryptedText && (
+                    {activeTab === "decrypt" && (
                       <motion.div
-                        className="space-y-2"
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
+                        key="decrypt"
+                        variants={cardVariants}
+                        initial="initial"
+                        animate="animate"
+                        exit="exit"
                       >
-                        <Label
-                          htmlFor="decryptedText"
-                          className={`${
-                            isDarkMode ? "text-gray-300" : "text-gray-700"
-                          }`}
-                        >
-                          Decrypted Data
-                        </Label>
-                        <div className="relative">
-                          <Textarea
-                            id="decryptedText"
-                            readOnly
-                            value={decryptedText}
-                            className={`${
-                              isDarkMode
-                                ? "bg-gray-800 border-gray-700 text-green-300"
-                                : "bg-gray-100 border-gray-300 text-green-700"
-                            } min-h-[100px]`}
-                          />
-                          <div className="absolute top-2 right-2 flex space-x-1">
-                            <Button
-                              onClick={() =>
-                                copyToClipboard(
-                                  decryptedText,
-                                  "Decrypted data copied"
-                                )
-                              }
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
+                        <TabsContent value="decrypt" className="mt-6">
+                          <div className="space-y-4">
+                            <AnimatePresence>
+                              {decryptionFields.map((field, index) => (
+                                <motion.div
+                                  key={field.id}
+                                  initial="hidden"
+                                  animate="visible"
+                                  exit="exit"
+                                  variants={variants}
+                                  className="space-y-2 border p-4 rounded-md dark:border-gray-700"
+                                >
+                                  <div className="flex justify-between items-center">
+                                    <Label
+                                      htmlFor={`inputToken-${field.id}`}
+                                      className={`${
+                                        isDarkMode
+                                          ? "text-gray-300"
+                                          : "text-gray-700"
+                                      }`}
+                                    >
+                                      Encrypted Token {index + 1}
+                                    </Label>
+                                    {decryptionFields.length > 1 && (
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={() =>
+                                          removeDecryptionField(field.id)
+                                        }
+                                        className="h-8 w-8 text-gray-500 hover:text-red-500"
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </Button>
+                                    )}
+                                  </div>
+                                  <Textarea
+                                    id={`inputToken-${field.id}`}
+                                    placeholder="Paste encrypted token here..."
+                                    value={field.inputToken}
+                                    onChange={(e) =>
+                                      updateDecryptionField(
+                                        field.id,
+                                        "inputToken",
+                                        e.target.value
+                                      )
+                                    }
+                                    className={`${
+                                      isDarkMode
+                                        ? "bg-gray-800 border-gray-700 text-white"
+                                        : "bg-gray-100 border-gray-300 text-gray-800"
+                                    } min-h-[120px]`}
+                                  />
+                                  {field.decryptedText && (
+                                    <div className="space-y-2 mt-4">
+                                      <Label
+                                        htmlFor={`decryptedText-${field.id}`}
+                                        className={`${
+                                          isDarkMode
+                                            ? "text-gray-300"
+                                            : "text-gray-700"
+                                        }`}
+                                      >
+                                        Decrypted Data {index + 1}
+                                      </Label>
+                                      <div className="relative">
+                                        <Textarea
+                                          id={`decryptedText-${field.id}`}
+                                          readOnly
+                                          value={field.decryptedText}
+                                          className={`${
+                                            isDarkMode
+                                              ? "bg-gray-800 border-gray-700 text-gray-300"
+                                              : "bg-gray-100 border-gray-300 text-gray-700"
+                                          } min-h-[100px]`}
+                                        />
+                                        <div className="absolute top-2 right-2 flex space-x-1">
+                                          <Button
+                                            onClick={() =>
+                                              copyToClipboard(
+                                                field.decryptedText,
+                                                `Decrypted data ${
+                                                  index + 1
+                                                } copied`
+                                              )
+                                            }
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-8 w-8 text-gray-500 hover:text-black dark:hover:text-white"
+                                          >
+                                            <Copy className="h-4 w-4" />
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+                                </motion.div>
+                              ))}
+                            </AnimatePresence>
+                            <div className="flex justify-end space-x-2">
+                              <Button
+                                onClick={addDecryptionField}
+                                variant="outline"
+                                className="text-black dark:text-white border-black dark:border-white hover:bg-gray-200 dark:hover:bg-gray-800"
+                              >
+                                <Plus className="mr-2 h-4 w-4" />
+                                Add Another
+                              </Button>
+                              <Button
+                                onClick={downloadDecrypted}
+                                disabled={decryptionFields.every(
+                                  (f) => !f.decryptedText
+                                )}
+                                variant="outline"
+                                className="text-black dark:text-white border-black dark:border-white hover:bg-gray-200 dark:hover:bg-gray-800"
+                              >
+                                <Download className="mr-2 h-4 w-4" />
+                                Download All
+                              </Button>
+                            </div>
+                            <motion.div
+                              whileHover={{ scale: 1.01 }}
+                              whileTap={{ scale: 0.99 }}
                             >
-                              <Copy className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              onClick={downloadDecrypted}
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                            >
-                              <Download className="h-4 w-4" />
-                            </Button>
+                              <Button
+                                onClick={handleDecryptAll}
+                                disabled={
+                                  isLoading ||
+                                  !secretKey ||
+                                  decryptionFields.every((f) => !f.inputToken)
+                                }
+                                className="w-full bg-black text-white dark:bg-white dark:text-black shadow-md"
+                              >
+                                {isLoading ? (
+                                  <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    Decrypting...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Unlock className="mr-2 h-4 w-4" />
+                                    Decrypt All
+                                  </>
+                                )}
+                              </Button>
+                            </motion.div>
                           </div>
-                        </div>
+                        </TabsContent>
                       </motion.div>
                     )}
-                  </div>
-                </TabsContent>
+                  </AnimatePresence>
+                </div>
               </Tabs>
             </CardContent>
           </Card>
         </motion.div>
       </main>
 
-      <footer className="border-t border-gray-800 p-4 text-center text-sm text-gray-500 dark:text-gray-400">
+      <footer className="border-t border-gray-200 dark:border-gray-800 p-4 text-center text-sm text-gray-500 dark:text-gray-400">
         <div className="container mx-auto">
           <p>
             &copy; {new Date().getFullYear()} Aegis by GamicGo. All rights
@@ -679,7 +889,7 @@ export default function App() {
               href="https://www.gamicgo.xyz"
               target="_blank"
               rel="noopener noreferrer"
-              className="hover:text-indigo-500 dark:hover:text-indigo-400 underline"
+              className="hover:text-black dark:hover:text-white underline"
             >
               Visit GamicGo
             </a>
