@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import ClientWrapper from "@/components/clientWrapper";
-
+import { GoogleAnalytics } from "@next/third-parties/google";
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -71,6 +71,9 @@ export default function RootLayout({
       >
         <ClientWrapper>{children}</ClientWrapper>
       </body>
+      {process.env.NODE_ENV == "production" && (
+        <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_ANALYTICS_ID || ""} />
+      )}
     </html>
   );
 }
